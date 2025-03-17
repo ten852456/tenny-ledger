@@ -54,6 +54,7 @@ yarn-error.log*
 *.swo
 *~
 *.sublime-workspace
+.cursorrules
 
 # Logs
 logs
