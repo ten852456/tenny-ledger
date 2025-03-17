@@ -1,9 +1,11 @@
 use crate::error::AppError;
-use image::{DynamicImage, GenericImageView};
+use image::DynamicImage;
 use leptess::{LepTess, Variable};
 use std::path::Path;
 use std::time::Instant;
 use regex::Regex;
+use serde;
+use std::fs;
 
 pub struct OcrProcessor {
     tesseract: LepTess,
@@ -16,7 +18,7 @@ pub struct OcrResult {
     pub processing_time: f64,
 }
 
-#[derive(serde::Serialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct ExtractedData {
     pub total: Option<f64>,
     pub date: Option<String>,
@@ -24,7 +26,7 @@ pub struct ExtractedData {
     pub items: Vec<ItemData>,
 }
 
-#[derive(serde::Serialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct ItemData {
     pub name: String,
     pub price: Option<f64>,
@@ -42,24 +44,16 @@ impl OcrProcessor {
     pub fn process_image(&mut self, image_path: &Path) -> Result<OcrResult, AppError> {
         let start = Instant::now();
         
-        // Load image
-        let img = image::open(image_path)
-            .map_err(|e| AppError::ImageError(format!("Failed to open image: {}", e)))?;
-            
-        // Preprocess image for better OCR results
-        let processed_img = self.preprocess_image(img);
-        
-        // Convert to bytes
-        let mut buffer = Vec::new();
-        processed_img.write_to(&mut buffer, image::ImageOutputFormat::Png)
-            .map_err(|e| AppError::ImageError(format!("Failed to write image: {}", e)))?;
+        // Read the file into memory
+        let img_bytes = fs::read(image_path)
+            .map_err(|e| AppError::IoError(e))?;
             
         // Set image data for OCR
-        self.tesseract.set_image_from_mem(&buffer)
+        self.tesseract.set_image_from_mem(&img_bytes)
             .map_err(|e| AppError::OcrError(format!("Failed to set image: {}", e)))?;
             
         // Set parameters for receipt OCR
-        self.tesseract.set_variable(Variable::TesseditPageSegMode, "6") // Assume single uniform block of text
+        self.tesseract.set_variable(Variable::TesseditPagesegMode, "6") // Assume single uniform block of text
             .map_err(|e| AppError::OcrError(format!("Failed to set page segmentation mode: {}", e)))?;
             
         // Get OCR text
@@ -157,20 +151,20 @@ impl OcrProcessor {
         
         // This is a simplified approach - in reality, we'd need more sophisticated parsing
         // based on the specific receipt format, which varies greatly
-        let item_regex = Regex::new(r"([A-Za-z\s]+)[\s]+(\d+(?:\.\d{2})?)").ok()?;
-        
-        for line in text.lines() {
-            if let Some(cap) = item_regex.captures(line) {
-                if cap.len() >= 3 {
-                    let name = cap[1].trim().to_string();
-                    let price = cap[2].parse::<f64>().ok();
-                    
-                    if name.len() > 2 && !name.to_lowercase().contains("total") {
-                        items.push(ItemData {
-                            name,
-                            price,
-                            quantity: Some(1), // Default quantity
-                        });
+        if let Ok(item_regex) = Regex::new(r"([A-Za-z\s]+)[\s]+(\d+(?:\.\d{2})?)") {
+            for line in text.lines() {
+                if let Some(cap) = item_regex.captures(line) {
+                    if cap.len() >= 3 {
+                        let name = cap[1].trim().to_string();
+                        let price = cap[2].parse::<f64>().ok();
+                        
+                        if name.len() > 2 && !name.to_lowercase().contains("total") {
+                            items.push(ItemData {
+                                name,
+                                price,
+                                quantity: Some(1), // Default quantity
+                            });
+                        }
                     }
                 }
             }

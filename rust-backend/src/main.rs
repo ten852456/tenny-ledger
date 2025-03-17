@@ -5,6 +5,8 @@ mod error;
 mod models;
 mod handlers;
 mod ocr;
+mod fixtures;
+mod schema;
 
 use actix_cors::Cors;
 use actix_web::{middleware, App, HttpServer};
@@ -16,6 +18,18 @@ use log::info;
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
     env_logger::init();
+    
+    // Check for command line args
+    let args: Vec<String> = env::args().collect();
+    
+    if args.len() > 1 && args[1] == "load-fixtures" {
+        println!("Loading fixtures...");
+        match fixtures::load_all_fixtures() {
+            Ok(_) => println!("Fixtures loaded successfully!"),
+            Err(e) => eprintln!("Error loading fixtures: {}", e),
+        }
+        return Ok(());
+    }
     
     let host = env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());

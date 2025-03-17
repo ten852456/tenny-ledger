@@ -26,8 +26,11 @@ This project uses a hybrid tech stack:
 - Node.js (v14+)
 - Rust (latest stable)
 - PostgreSQL
+- Docker & Docker Compose (optional, for containerized setup)
 
 ### Installation
+
+#### Option 1: Local Setup
 
 1. Clone the repository:
    ```
@@ -61,6 +64,33 @@ This project uses a hybrid tech stack:
    JWT_SECRET=your-secret-key
    ```
 
+5. Initialize the database and load fixtures:
+   ```
+   npm run init-db
+   ```
+
+#### Option 2: Docker Setup
+
+1. Clone the repository:
+   ```
+   git clone https://github.com/ten852456/tenny-ledger.git
+   cd tenny-ledger
+   ```
+
+2. Build and start the Docker containers:
+   ```
+   docker-compose up -d
+   ```
+
+3. Initialize the database with fixtures:
+   ```
+   docker-compose exec backend tenny-ledger load-fixtures
+   ```
+
+The application will be available at:
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8080
+
 ### Development
 
 1. Start the frontend:
@@ -87,6 +117,32 @@ The frontend will be available at http://localhost:3000 and the backend at http:
 | `/api/transactions` | GET | Get user transactions |
 | `/api/transactions` | POST | Create new transaction |
 | `/api/categories` | GET | Get transaction categories |
+
+## Project Structure
+
+### Frontend (Next.js)
+
+- `/frontend/pages` - Next.js pages and routing
+- `/frontend/components` - React components
+- `/frontend/hooks` - Custom React hooks
+- `/frontend/services` - API service interfaces
+- `/frontend/styles` - Global styles and Tailwind config
+- `/frontend/public` - Static assets
+- `/frontend/pages/api/proxy` - API proxy to avoid CORS issues
+
+### Backend (Rust)
+
+- `/rust-backend/src/handlers` - API endpoint handlers
+- `/rust-backend/src/models` - Database models
+- `/rust-backend/src/ocr` - OCR processing logic
+- `/rust-backend/src/fixtures` - Database fixtures for testing/development
+- `/rust-backend/migrations` - Database migrations
+
+### Docker Setup
+
+- `Dockerfile.frontend` - Frontend container configuration
+- `Dockerfile.backend` - Backend container configuration
+- `docker-compose.yml` - Multi-container Docker configuration
 
 ## License
 

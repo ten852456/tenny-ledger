@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::ocr::processor::{OcrProcessor, OcrResult};
 use actix_multipart::Multipart;
-use actix_web::{web, HttpResponse};
+use actix_web::HttpResponse;
 use futures::{StreamExt, TryStreamExt};
 use std::fs;
 use std::io::Write;
@@ -36,7 +36,8 @@ pub async fn process_image(mut payload: Multipart) -> Result<HttpResponse, AppEr
                 
             // Write file to disk
             while let Some(chunk) = field.next().await {
-                let data = chunk.map_err(|e| AppError::IoError(e))?;
+                let data = chunk
+                    .map_err(|e| AppError::BadRequest(format!("Error reading multipart data: {}", e)))?;
                 file.write_all(&data)
                     .map_err(|e| AppError::IoError(e))?;
             }

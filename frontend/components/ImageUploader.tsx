@@ -1,53 +1,42 @@
 import React, { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import Image from 'next/image';
+import { ocrAPI } from '../services/api';
 
 interface ImageUploaderProps {
-  onImageSelect: (file: File) => void;
-  maxSize?: number;
-  acceptedFileTypes?: string[];
-  className?: string;
+  onProcessed: (data: any) => void;
+  onError?: (error: string) => void;
 }
 
-const ImageUploader: React.FC<ImageUploaderProps> = ({
-  onImageSelect,
-  maxSize = 5242880, // 5MB
-  acceptedFileTypes = ['image/jpeg', 'image/png', 'application/pdf'],
-  className = '',
-}) => {
+const ImageUploader: React.FC<ImageUploaderProps> = ({ onProcessed, onError }) => {
+  const [isUploading, setIsUploading] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  const onDrop = useCallback((acceptedFiles: File[], rejectedFiles: any[]) => {
-    // Handle rejected files
-    if (rejectedFiles.length > 0) {
-      const { errors } = rejectedFiles[0];
-      if (errors[0]?.code === 'file-too-large') {
-        setError(`File is too large. Max size is ${maxSize / 1024 / 1024}MB`);
-      } else if (errors[0]?.code === 'file-invalid-type') {
-        setError('Invalid file type. Please upload an image (JPEG, PNG) or PDF.');
-      } else {
-        setError('Error uploading file. Please try again.');
-      }
-      return;
-    }
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+    if (acceptedFiles.length === 0) return;
 
-    // Handle accepted files
-    if (acceptedFiles.length > 0) {
-      const file = acceptedFiles[0];
-      setError(null);
+    const file = acceptedFiles[0];
+    
+    // Create preview
+    const objectUrl = URL.createObjectURL(file);
+    setPreview(objectUrl);
+    
+    // Upload and process
+    try {
+      setIsUploading(true);
       
-      // Create preview
-      const reader = new FileReader();
-      reader.onload = () => {
-        setPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      const formData = new FormData();
+      formData.append('image', file);
       
-      // Pass file to parent component
-      onImageSelect(file);
+      const response = await ocrAPI.processImage(formData);
+      
+      onProcessed(response.data);
+    } catch (error) {
+      console.error('Error processing image:', error);
+      onError?.(error instanceof Error ? error.message : 'Failed to process image');
+    } finally {
+      setIsUploading(false);
     }
-  }, [maxSize, onImageSelect]);
+  }, [onProcessed, onError]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -56,70 +45,38 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
       'image/png': ['.png'],
       'application/pdf': ['.pdf'],
     },
-    maxSize,
-    multiple: false,
+    maxFiles: 1,
   });
 
   return (
-    <div className={`w-full ${className}`}>
-      <div
-        {...getRootProps({
-          className: `border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-            isDragActive ? 'border-primary-500 bg-primary-50' : 'border-gray-300 hover:border-primary-300'
-          }`,
-        })}
+    <div className="w-full">
+      <div 
+        {...getRootProps()} 
+        className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
+          ${isDragActive ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-400'}`}
       >
         <input {...getInputProps()} />
         
         {preview ? (
-          <div className="flex flex-col items-center">
-            <div className="relative w-48 h-48 mb-4">
-              <Image
-                src={preview}
-                alt="Preview"
-                fill
-                className="object-contain"
-              />
-            </div>
-            <p className="text-sm text-gray-600">
-              Drop another file to replace this one, or click to select a file
-            </p>
+          <div className="space-y-4">
+            <img src={preview} alt="Bill preview" className="max-h-60 mx-auto" />
+            <p className="text-sm text-gray-500">Drop another image to replace</p>
           </div>
         ) : (
-          <div className="flex flex-col items-center">
-            <svg
-              className="w-12 h-12 mb-4 text-gray-400"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-              />
+          <div className="space-y-2">
+            <svg className="w-12 h-12 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
-            {isDragActive ? (
-              <p className="text-primary-600">Drop the bill image here</p>
-            ) : (
-              <div>
-                <p className="mb-2 text-sm text-gray-700">
-                  Drag and drop your bill image, or click to select
-                </p>
-                <p className="text-xs text-gray-500">
-                  Supported formats: JPEG, PNG, PDF (Max {maxSize / 1024 / 1024}MB)
-                </p>
-              </div>
-            )}
+            <p className="text-lg font-medium">Drag & drop your bill or receipt</p>
+            <p className="text-sm text-gray-500">Supports JPG, PNG, and PDF</p>
           </div>
         )}
       </div>
       
-      {error && (
-        <div className="mt-2 text-sm text-red-600">
-          {error}
+      {isUploading && (
+        <div className="mt-4 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-500 mr-2"></div>
+          <p>Processing your bill...</p>
         </div>
       )}
     </div>
