@@ -1,0 +1,427 @@
+{
+  "name": "Bill Scanning Ledger App (Next.js + Rust)",
+  "version": "1.0.0",
+  "description": "A web-based ledger application using Next.js for frontend and Rust for OCR processing",
+  "scope": {
+    "folders": {
+      "frontend": {
+        "description": "Next.js frontend application",
+        "structure": [
+          "pages/",
+          "pages/api/",
+          "components/",
+          "hooks/",
+          "services/",
+          "utils/",
+          "public/",
+          "styles/",
+          "types/"
+        ]
+      },
+      "rust-backend": {
+        "description": "Rust backend for OCR processing",
+        "structure": [
+          "src/",
+          "src/models/",
+          "src/services/",
+          "src/handlers/",
+          "src/utils/",
+          "src/ocr/",
+          "tests/",
+          "migrations/"
+        ]
+      }
+    },
+    "files": {
+      "frontend/pages": [
+        "index.tsx",
+        "dashboard.tsx",
+        "upload.tsx",
+        "transactions/index.tsx",
+        "transactions/[id].tsx",
+        "reports.tsx",
+        "settings.tsx",
+        "profile.tsx",
+        "_app.tsx",
+        "_document.tsx"
+      ],
+      "frontend/pages/api": [
+        "auth/[...nextauth].ts",
+        "proxy/ocr.ts",
+        "transactions/index.ts",
+        "transactions/[id].ts",
+        "categories.ts",
+        "upload.ts"
+      ],
+      "frontend/components": [
+        "Layout.tsx",
+        "ImageUploader.tsx",
+        "BillPreview.tsx",
+        "TransactionForm.tsx",
+        "TransactionList.tsx",
+        "CategorySelector.tsx",
+        "Dashboard/Summary.tsx",
+        "Dashboard/RecentTransactions.tsx",
+        "Reports/ChartView.tsx",
+        "ui/Button.tsx",
+        "ui/Card.tsx",
+        "ui/Modal.tsx"
+      ],
+      "frontend/hooks": [
+        "useAuth.ts",
+        "useTransactions.ts",
+        "useUpload.ts",
+        "useCategories.ts"
+      ],
+      "frontend/services": [
+        "api.ts",
+        "storage.ts"
+      ],
+      "rust-backend/src": [
+        "main.rs",
+        "config.rs",
+        "db.rs",
+        "routes.rs",
+        "error.rs"
+      ],
+      "rust-backend/src/models": [
+        "mod.rs",
+        "transaction.rs",
+        "user.rs",
+        "category.rs",
+        "bill.rs"
+      ],
+      "rust-backend/src/handlers": [
+        "mod.rs",
+        "auth.rs",
+        "ocr.rs",
+        "transactions.rs",
+        "users.rs"
+      ],
+      "rust-backend/src/ocr": [
+        "mod.rs",
+        "processor.rs",
+        "parser.rs",
+        "image_preprocessing.rs",
+        "data_extraction.rs"
+      ]
+    }
+  },
+  "tasks": [
+    {
+      "name": "Set up Next.js project",
+      "priority": "high",
+      "files": [
+        "frontend/package.json",
+        "frontend/tsconfig.json",
+        "frontend/next.config.js"
+      ]
+    },
+    {
+      "name": "Create Rust project structure",
+      "priority": "high",
+      "files": [
+        "rust-backend/Cargo.toml",
+        "rust-backend/src/main.rs",
+        "rust-backend/src/routes.rs"
+      ]
+    },
+    {
+      "name": "Implement image upload component",
+      "priority": "high",
+      "files": [
+        "frontend/components/ImageUploader.tsx",
+        "frontend/pages/upload.tsx",
+        "frontend/hooks/useUpload.ts"
+      ]
+    },
+    {
+      "name": "Create OCR processing service in Rust",
+      "priority": "high",
+      "files": [
+        "rust-backend/src/ocr/processor.rs",
+        "rust-backend/src/handlers/ocr.rs"
+      ]
+    },
+    {
+      "name": "Set up database models",
+      "priority": "medium",
+      "files": [
+        "rust-backend/src/models/transaction.rs",
+        "rust-backend/src/models/bill.rs",
+        "rust-backend/src/db.rs"
+      ]
+    },
+    {
+      "name": "Implement authentication",
+      "priority": "medium",
+      "files": [
+        "frontend/pages/api/auth/[...nextauth].ts",
+        "rust-backend/src/handlers/auth.rs"
+      ]
+    },
+    {
+      "name": "Create transaction management UI",
+      "priority": "medium",
+      "files": [
+        "frontend/components/TransactionList.tsx",
+        "frontend/components/TransactionForm.tsx",
+        "frontend/pages/transactions/index.tsx"
+      ]
+    },
+    {
+      "name": "Implement dashboard and reports",
+      "priority": "low",
+      "files": [
+        "frontend/components/Dashboard/Summary.tsx",
+        "frontend/pages/dashboard.tsx",
+        "frontend/pages/reports.tsx"
+      ]
+    }
+  ],
+  "dependencies": {
+    "frontend": [
+      "next: ^13.4.0",
+      "react: ^18.2.0",
+      "react-dom: ^18.2.0",
+      "typescript: ^5.0.4",
+      "axios: ^1.4.0",
+      "swr: ^2.1.5",
+      "next-auth: ^4.22.1",
+      "react-dropzone: ^14.2.3",
+      "chart.js: ^4.3.0",
+      "react-chartjs-2: ^5.2.0",
+      "tailwindcss: ^3.3.2"
+    ],
+    "rust-backend": [
+      "tokio = { version = \"1.28\", features = [\"full\"] }",
+      "actix-web = \"4.3\"",
+      "actix-cors = \"0.6\"",
+      "actix-multipart = \"0.6\"",
+      "diesel = { version = \"2.1\", features = [\"postgres\", \"r2d2\"] }",
+      "serde = { version = \"1.0\", features = [\"derive\"] }",
+      "serde_json = \"1.0\"",
+      "jsonwebtoken = \"8.3\"",
+      "dotenv = \"0.15\"",
+      "env_logger = \"0.10\"",
+      "image = \"0.24\"",
+      "leptess = \"0.14\"",
+      "regex = \"1.8\"",
+      "rust-bert = \"0.20\"",
+      "futures = \"0.3\""
+    ]
+  },
+  "features": [
+    {
+      "name": "Image Upload & Processing",
+      "description": "Allow users to upload bill images from their device gallery",
+      "acceptance": [
+        "Support for JPG, PNG and PDF formats",
+        "Gallery access on mobile browsers",
+        "Preview before processing",
+        "Image optimization via Next.js"
+      ]
+    },
+    {
+      "name": "OCR Text Extraction (Rust)",
+      "description": "Extract text from bill images using Rust-based OCR",
+      "acceptance": [
+        "High-performance text extraction",
+        "Detect bill total amount",
+        "Identify merchant name",
+        "Extract date of purchase",
+        "Process multiple receipts in batch"
+      ]
+    },
+    {
+      "name": "Transaction Management",
+      "description": "Store and manage extracted bill data as transactions",
+      "acceptance": [
+        "Manual editing of extracted data",
+        "Categorization of transactions",
+        "Filtering and sorting capabilities",
+        "Search functionality"
+      ]
+    },
+    {
+      "name": "Reporting & Analytics",
+      "description": "Generate financial reports from transaction data",
+      "acceptance": [
+        "Real-time dashboard with spending overview",
+        "Monthly spending summaries",
+        "Category-based reports",
+        "Trend visualization with charts",
+        "Export to CSV/PDF"
+      ]
+    },
+    {
+      "name": "User Authentication",
+      "description": "Secure user accounts with NextAuth.js",
+      "acceptance": [
+        "Email/password authentication",
+        "OAuth providers (Google, GitHub)",
+        "JWT token-based authentication",
+        "Secure password handling"
+      ]
+    },
+    {
+      "name": "Offline Capability",
+      "description": "Next.js PWA features for offline access",
+      "acceptance": [
+        "Service worker integration",
+        "Cache previously loaded transactions",
+        "Queue uploads when offline",
+        "Sync when connection is restored"
+      ]
+    }
+  ],
+  "apiEndpoints": [
+    {
+      "path": "/api/auth/register",
+      "method": "POST",
+      "description": "Register new user",
+      "request": {
+        "email": "string",
+        "password": "string",
+        "name": "string"
+      },
+      "response": {
+        "token": "string",
+        "user": {
+          "id": "string",
+          "email": "string",
+          "name": "string"
+        }
+      }
+    },
+    {
+      "path": "/api/auth/login",
+      "method": "POST",
+      "description": "User login",
+      "request": {
+        "email": "string",
+        "password": "string"
+      },
+      "response": {
+        "token": "string",
+        "user": {
+          "id": "string",
+          "email": "string",
+          "name": "string"
+        }
+      }
+    },
+    {
+      "path": "/api/ocr/process",
+      "method": "POST",
+      "description": "Process bill image using Rust OCR",
+      "request": {
+        "image": "file (multipart/form-data)"
+      },
+      "response": {
+        "text": "string",
+        "extractedData": {
+          "total": "number",
+          "date": "string",
+          "merchant": "string",
+          "items": "array"
+        },
+        "confidence": "number",
+        "processingTime": "number"
+      }
+    },
+    {
+      "path": "/api/transactions",
+      "method": "GET",
+      "description": "Get user transactions",
+      "request": {
+        "filters": "object (optional)",
+        "page": "number (optional)",
+        "limit": "number (optional)"
+      },
+      "response": {
+        "transactions": "array",
+        "total": "number",
+        "page": "number",
+        "pages": "number"
+      }
+    },
+    {
+      "path": "/api/transactions",
+      "method": "POST",
+      "description": "Create new transaction",
+      "request": {
+        "amount": "number",
+        "date": "string",
+        "merchant": "string",
+        "category": "string",
+        "items": "array (optional)",
+        "notes": "string (optional)",
+        "billImage": "string (optional, image path)"
+      },
+      "response": {
+        "id": "string",
+        "amount": "number",
+        "date": "string",
+        "merchant": "string",
+        "category": "string",
+        "createdAt": "string"
+      }
+    },
+    {
+      "path": "/api/categories",
+      "method": "GET",
+      "description": "Get transaction categories",
+      "response": {
+        "categories": "array"
+      }
+    }
+  ],
+  "architecture": {
+    "components": [
+      {
+        "name": "Next.js Frontend",
+        "description": "Client-side application with React and Next.js",
+        "responsibilities": [
+          "User interface",
+          "Client-side validation",
+          "State management",
+          "API communication",
+          "Image optimization",
+          "Authentication UI"
+        ]
+      },
+      {
+        "name": "Next.js API Routes",
+        "description": "Serverless functions for API endpoints",
+        "responsibilities": [
+          "Authentication handling",
+          "Proxy requests to Rust backend",
+          "Simple data operations",
+          "File uploads"
+        ]
+      },
+      {
+        "name": "Rust Backend",
+        "description": "High-performance server for OCR and data processing",
+        "responsibilities": [
+          "OCR processing",
+          "Image preprocessing",
+          "Data extraction",
+          "Database operations",
+          "Business logic"
+        ]
+      },
+      {
+        "name": "PostgreSQL Database",
+        "description": "Persistent data storage",
+        "responsibilities": [
+          "User data",
+          "Transaction records",
+          "Categories",
+          "Bill metadata"
+        ]
+      }
+    ]
+  }
+}
