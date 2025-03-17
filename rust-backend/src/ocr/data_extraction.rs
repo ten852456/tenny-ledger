@@ -8,6 +8,8 @@ pub fn extract_structured_data(text: &str) -> ExtractedData {
         date: extract_date(text),
         merchant: extract_merchant(text),
         items: extract_items(text),
+        confidence: 0.0,
+        ocr_source: "tesseract".to_string(),
     }
 }
 

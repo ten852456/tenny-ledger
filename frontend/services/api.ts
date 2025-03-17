@@ -75,10 +75,30 @@ export const transactionsAPI = {
     api.get('/api/transactions', { params: filters }),
   getTransaction: (id: string) => 
     api.get(`/api/transactions/${id}`),
-  createTransaction: (transactionData: any) => 
-    api.post('/api/transactions', transactionData),
-  updateTransaction: (id: string, transactionData: any) => 
-    api.put(`/api/transactions/${id}`, transactionData),
+  createTransaction: (transactionData: any) => {
+    // Format the date in ISO format as expected by the backend
+    const formattedData = {
+      ...transactionData,
+      // If date is a string in YYYY-MM-DD format, convert it to ISO format with time
+      date: transactionData.date && !transactionData.date.includes('T') 
+        ? new Date(transactionData.date).toISOString()
+        : transactionData.date
+    };
+    
+    return api.post('/api/transactions', formattedData);
+  },
+  updateTransaction: (id: string, transactionData: any) => {
+    // Format the date in ISO format as expected by the backend
+    const formattedData = {
+      ...transactionData
+    };
+    
+    if (transactionData.date && !transactionData.date.includes('T')) {
+      formattedData.date = new Date(transactionData.date).toISOString();
+    }
+    
+    return api.put(`/api/transactions/${id}`, formattedData);
+  },
   deleteTransaction: (id: string) => 
     api.delete(`/api/transactions/${id}`),
 };

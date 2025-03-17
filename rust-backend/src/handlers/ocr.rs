@@ -16,20 +16,26 @@ pub struct OcrEngineQuery {
 
 // Existing function that uses hybrid processing by default
 pub async fn process_image(mut payload: Multipart) -> Result<HttpResponse, AppError> {
-    process_image_with_engine(payload, "hybrid").await
+    // Use hybrid as the default engine
+    let engine = "hybrid".to_string();
+    process_image_with_engine_internal(payload, engine).await
 }
 
-// New function that allows specifying the OCR engine
+// New function that allows specifying the OCR engine via query parameter
 pub async fn process_image_with_engine(
     mut payload: Multipart,
-    engine_param: Option<web::Query<OcrEngineQuery>>,
+    query: web::Query<OcrEngineQuery>,
 ) -> Result<HttpResponse, AppError> {
     // Extract engine preference from query params or use hybrid by default
-    let engine = match engine_param {
-        Some(query) => query.engine.clone().unwrap_or_else(|| "hybrid".to_string()),
-        None => "hybrid".to_string(),
-    };
-    
+    let engine = query.engine.clone().unwrap_or_else(|| "hybrid".to_string());
+    process_image_with_engine_internal(payload, engine).await
+}
+
+// Internal function that handles the actual processing with the specified engine
+async fn process_image_with_engine_internal(
+    mut payload: Multipart,
+    engine: String,
+) -> Result<HttpResponse, AppError> {
     // Create temp directory if it doesn't exist
     let upload_dir = Path::new("./temp");
     if !upload_dir.exists() {
@@ -69,11 +75,21 @@ pub async fn process_image_with_engine(
     
     // Process image with OCR
     if let Some(file_path) = temp_file_path {
-        let mut processor = OcrProcessor::new()?;
+        let mut processor = OcrProcessor::new();
         
         // Choose OCR engine based on the parameter
         let result = match engine.as_str() {
-            "tesseract" => processor.process_image(&file_path)?,
+            "tesseract" => {
+                let file_bytes = fs::read(&file_path)
+                    .map_err(|e| AppError::IoError(e))?;
+                let extracted_data = processor.process_image(&file_bytes)?;
+                OcrResult {
+                    text: "".to_string(),
+                    extracted_data: extracted_data.clone(),
+                    confidence: extracted_data.confidence,
+                    processing_time: 0.0,
+                }
+            },
             "google" => processor.process_with_google_vision(&file_path).await?,
             _ => processor.process_image_hybrid(&file_path).await?, // Default to hybrid
         };

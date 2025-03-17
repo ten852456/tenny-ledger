@@ -1,19 +1,22 @@
-use crate::error::AppError;
-use image::DynamicImage;
-use leptess::{LepTess, Variable};
 use std::path::Path;
-use std::time::Instant;
-use regex::Regex;
-use serde;
 use std::fs;
+use std::io::Cursor;
+use regex::Regex;
+use image::{DynamicImage, GenericImageView};
+use image::imageops;
+use imageproc::contrast;
+use leptess::LepTess;
+use serde::{Serialize, Deserialize};
 use base64;
-use reqwest;
-use std::env;
+use log;
+use crate::error::AppError;
 
 pub struct OcrProcessor {
-    tesseract: LepTess,
+    bottom_crop: Option<Vec<u8>>,
+    top_crop: Option<Vec<u8>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OcrResult {
     pub text: String,
     pub extracted_data: ExtractedData,
@@ -21,83 +24,165 @@ pub struct OcrResult {
     pub processing_time: f64,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub struct ExtractedData {
-    pub total: Option<f64>,
-    pub date: Option<String>,
-    pub merchant: Option<String>,
-    pub items: Vec<ItemData>,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ItemData {
     pub name: String,
     pub price: Option<f64>,
     pub quantity: Option<u32>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtractedData {
+    pub total: Option<f64>,
+    pub date: Option<String>,
+    pub merchant: Option<String>,
+    pub items: Vec<ItemData>,
+    pub confidence: f32,
+    pub ocr_source: String,
+}
+
+impl Default for ExtractedData {
+    fn default() -> Self {
+        Self {
+            total: None,
+            date: None,
+            merchant: None,
+            items: Vec::new(),
+            confidence: 0.0,
+            ocr_source: "tesseract".to_string(),
+        }
+    }
+}
+
 impl OcrProcessor {
-    pub fn new() -> Result<Self, AppError> {
-        let tesseract = LepTess::new(None, "eng")
-            .map_err(|e| AppError::OcrError(format!("Failed to initialize Tesseract: {}", e)))?;
-            
-        Ok(OcrProcessor { tesseract })
+    pub fn new() -> Self {
+        Self {
+            bottom_crop: None,
+            top_crop: None,
+        }
     }
     
-    pub fn process_image(&mut self, image_path: &Path) -> Result<OcrResult, AppError> {
-        let start = Instant::now();
+    pub fn process_image(&mut self, image_data: &[u8]) -> Result<ExtractedData, AppError> {
+        // Process the image
+        let (processed_image, bottom_crop, top_crop) = self.preprocess_image(image_data)?;
         
-        // Read the file into memory
-        let img_bytes = fs::read(image_path)
-            .map_err(|e| AppError::IoError(e))?;
-            
-        // Set image data for OCR
-        self.tesseract.set_image_from_mem(&img_bytes)
+        // Store the crops for later use
+        self.bottom_crop = Some(bottom_crop);
+        self.top_crop = Some(top_crop);
+        
+        // Extract text using Tesseract
+        let mut tesseract = LepTess::new(None, "eng+tha")
+            .map_err(|e| AppError::OcrError(format!("Failed to initialize Tesseract: {}", e)))?;
+        tesseract.set_image_from_mem(&processed_image)
             .map_err(|e| AppError::OcrError(format!("Failed to set image: {}", e)))?;
-            
-        // Set parameters for receipt OCR
-        self.tesseract.set_variable(Variable::TesseditPagesegMode, "6") // Assume single uniform block of text
-            .map_err(|e| AppError::OcrError(format!("Failed to set page segmentation mode: {}", e)))?;
-            
-        // Get OCR text
-        let text = self.tesseract.get_utf8_text()
-            .map_err(|e| AppError::OcrError(format!("Failed to recognize text: {}", e)))?;
-            
-        // Get confidence
-        let confidence = self.tesseract.mean_text_conf() as f32 / 100.0;
+        let text = tesseract.get_utf8_text()
+            .map_err(|e| AppError::OcrError(format!("Failed to get text: {}", e)))?;
         
-        // Extract structured data
-        let extracted_data = self.extract_data(&text)?;
+        // Extract data from the text
+        let total = self.extract_total(&text);
+        let date = self.extract_date(&text);
+        let merchant = self.extract_merchant(&text);
+        let items = self.extract_items(&text);
         
-        let duration = start.elapsed();
-        let processing_time = duration.as_secs_f64();
-        
-        Ok(OcrResult {
-            text,
-            extracted_data,
-            confidence,
-            processing_time,
+        Ok(ExtractedData {
+            total,
+            date,
+            merchant,
+            items,
+            confidence: 0.7, // Default confidence for Tesseract
+            ocr_source: "tesseract".to_string(),
         })
     }
     
-    fn preprocess_image(&self, img: DynamicImage) -> DynamicImage {
-        // Simple preprocessing - convert to grayscale and increase contrast
-        // In a real application, we would apply more sophisticated preprocessing
-        let grayscale = img.grayscale();
-        grayscale
+    fn preprocess_image(&self, image_data: &[u8]) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), AppError> {
+        // Load the image from bytes
+        let img = image::load_from_memory(image_data)
+            .map_err(|e| AppError::OcrError(format!("Failed to load image: {}", e)))?;
+        
+        // Get dimensions
+        let (width, height) = img.dimensions();
+        
+        // Create grayscale image with enhanced contrast for better OCR
+        let gray_img = img.to_luma8();
+        let contrast_img = contrast::stretch_contrast(&gray_img, 50, 200);
+        
+        // Create crops for specific parts of the receipt
+        
+        // Bottom crop (for total amount) - bottom 20% of the image
+        let bottom_height = (height as f32 * 0.2) as u32;
+        let bottom_y = height.saturating_sub(bottom_height);
+        let bottom_crop = imageops::crop_imm(&contrast_img, 0, bottom_y, width, bottom_height).to_image();
+        
+        // Top crop (for merchant name) - top 30% of the image
+        let top_height = (height as f32 * 0.3) as u32;
+        let top_crop = imageops::crop_imm(&contrast_img, 0, 0, width, top_height).to_image();
+        
+        // Convert images to byte arrays
+        let mut full_buffer = Vec::new();
+        let mut bottom_buffer = Vec::new();
+        let mut top_buffer = Vec::new();
+        
+        // Write full image to buffer
+        let mut cursor = Cursor::new(&mut full_buffer);
+        contrast_img.write_to(&mut cursor, image::ImageFormat::Png)
+            .map_err(|e| AppError::OcrError(format!("Failed to encode full image: {}", e)))?;
+        
+        // Write bottom crop to buffer
+        let mut cursor = Cursor::new(&mut bottom_buffer);
+        bottom_crop.write_to(&mut cursor, image::ImageFormat::Png)
+            .map_err(|e| AppError::OcrError(format!("Failed to encode bottom crop: {}", e)))?;
+        
+        // Write top crop to buffer
+        let mut cursor = Cursor::new(&mut top_buffer);
+        top_crop.write_to(&mut cursor, image::ImageFormat::Png)
+            .map_err(|e| AppError::OcrError(format!("Failed to encode top crop: {}", e)))?;
+        
+        Ok((full_buffer, bottom_buffer, top_buffer))
+    }
+    
+    fn process_image_parts(&self, img: DynamicImage) -> (DynamicImage, Vec<u8>, Vec<u8>) {
+        // Get image dimensions
+        let (width, height) = img.dimensions();
+        
+        // Create enhanced version of the full image
+        let mut enhanced = img.to_luma8();
+        for pixel in enhanced.iter_mut() {
+            // Increase contrast
+            if *pixel > 127 {
+                *pixel = 255.min(*pixel + 30);
+            } else {
+                *pixel = 0.max(*pixel - 30);
+            }
+        }
+        let enhanced_img = DynamicImage::ImageLuma8(enhanced);
+        
+        // Create cropped versions for specific processing
+        // Bottom part (for totals)
+        let bottom_height = height / 3;
+        let bottom_img = img.crop_imm(0, height - bottom_height, width, bottom_height);
+        
+        // Top part (for merchant info)
+        let top_height = height / 4;
+        let top_img = img.crop_imm(0, 0, width, top_height);
+        
+        // Convert cropped images to bytes
+        let mut bottom_buffer = Vec::new();
+        let mut bottom_cursor = std::io::Cursor::new(&mut bottom_buffer);
+        bottom_img.write_to(&mut bottom_cursor, image::ImageFormat::Jpeg)
+            .expect("Failed to encode bottom crop");
+            
+        let mut top_buffer = Vec::new();
+        let mut top_cursor = std::io::Cursor::new(&mut top_buffer);
+        top_img.write_to(&mut top_cursor, image::ImageFormat::Jpeg)
+            .expect("Failed to encode top crop");
+        
+        (enhanced_img, bottom_buffer, top_buffer)
     }
     
     fn extract_data(&self, text: &str) -> Result<ExtractedData, AppError> {
-        // Extract total amount
         let total = self.extract_total(text);
-        
-        // Extract date
         let date = self.extract_date(text);
-        
-        // Extract merchant
         let merchant = self.extract_merchant(text);
-        
-        // Extract items
         let items = self.extract_items(text);
         
         Ok(ExtractedData {
@@ -105,17 +190,89 @@ impl OcrProcessor {
             date,
             merchant,
             items,
+            confidence: 0.0,
+            ocr_source: "tesseract".to_string(),
         })
     }
     
     fn extract_total(&self, text: &str) -> Option<f64> {
-        // Pattern for matching money amounts like $42.99, 42.99, or TOTAL: $42.99
-        let total_regex = Regex::new(r"(?i)(total|amount|sum)[:\s]*[$]?(\d+\.\d{2})").ok()?;
+        // First try looking at the bottom crop where totals often appear
+        if let Some(bottom_data) = &self.bottom_crop {
+            // Initialize a new tesseract instance specifically for the bottom crop
+            if let Ok(mut crop_tesseract) = LepTess::new(None, "eng+tha") {
+                if crop_tesseract.set_image_from_mem(&bottom_data).is_ok() {
+                    if let Ok(crop_text) = crop_tesseract.get_utf8_text() {
+                        // Try to find total in the bottom crop
+                        if let Some(total) = self.find_total_in_text(&crop_text) {
+                            return Some(total);
+                        }
+                    }
+                }
+            }
+        }
         
-        if let Some(cap) = total_regex.captures(text) {
-            if let Some(amount_str) = cap.get(2) {
-                if let Ok(amount) = amount_str.as_str().parse::<f64>() {
-                    return Some(amount);
+        // Fallback to full text
+        self.find_total_in_text(text)
+    }
+    
+    fn find_total_in_text(&self, text: &str) -> Option<f64> {
+        // Look for total amount patterns in Thai receipts
+        let total_indicators = [
+            "total", "รวม", "ทั้งหมด", "รวมทั้งสิ้น", "รวมเงิน", "จำนวนเงิน", "ยอดรวม", "ยอดเงิน"
+        ];
+        
+        // Thai currency symbols and formats
+        let currency_patterns = [
+            r"(?:฿|บาท|บ\.|THB)\s*(\d+(?:[,.]\d{1,3})*(?:\.\d{1,2})?)",  // ฿100.00, 100.00บาท
+            r"(\d+(?:[,.]\d{1,3})*(?:\.\d{1,2})?)\s*(?:฿|บาท|บ\.)",      // 100.00฿, 100.00 บาท
+            r"(?:total|รวม|ทั้งหมด|รวมทั้งสิ้น|รวมเงิน|จำนวนเงิน|ยอดรวม|ยอดเงิน)[^\d]*(\d+(?:[,.]\d{1,3})*(?:\.\d{1,2})?)" // total: 100.00
+        ];
+        
+        // First look for lines with total indicators
+        for line in text.lines() {
+            let line_lower = line.to_lowercase();
+            
+            // Check if line contains total indicators
+            let has_indicator = total_indicators.iter()
+                .any(|&indicator| line_lower.contains(&indicator.to_lowercase()));
+                
+            if has_indicator {
+                // Try each currency pattern
+                for pattern in &currency_patterns {
+                    if let Ok(regex) = Regex::new(pattern) {
+                        if let Some(cap) = regex.captures(&line) {
+                            if let Some(amount_str) = cap.get(1) {
+                                // Clean up the amount string (remove commas, spaces)
+                                let clean_amount = amount_str.as_str()
+                                    .replace(",", "")
+                                    .replace(" ", "");
+                                
+                                // Parse as float
+                                if let Ok(amount) = clean_amount.parse::<f64>() {
+                                    return Some(amount);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Fallback: look for currency patterns in all lines
+        for line in text.lines() {
+            for pattern in &currency_patterns {
+                if let Ok(regex) = Regex::new(pattern) {
+                    if let Some(cap) = regex.captures(&line) {
+                        if let Some(amount_str) = cap.get(1) {
+                            let clean_amount = amount_str.as_str()
+                                .replace(",", "")
+                                .replace(" ", "");
+                            
+                            if let Ok(amount) = clean_amount.parse::<f64>() {
+                                return Some(amount);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -123,26 +280,107 @@ impl OcrProcessor {
         None
     }
     
-    fn extract_date(&self, text: &str) -> Option<String> {
-        // Pattern for common date formats
-        let date_regex = Regex::new(r"(\d{1,2})[/\-\.](\d{1,2})[/\-\.](\d{2,4})").ok()?;
-        
-        if let Some(cap) = date_regex.captures(text) {
-            return Some(cap[0].to_string());
+    fn extract_merchant(&self, text: &str) -> Option<String> {
+        // First try using the top part of the receipt for merchant name
+        if let Some(top_data) = &self.top_crop {
+            if let Ok(mut crop_tesseract) = LepTess::new(None, "eng+tha") {
+                if crop_tesseract.set_image_from_mem(&top_data).is_ok() {
+                    if let Ok(crop_text) = crop_tesseract.get_utf8_text() {
+                        // Try to find merchant in the top crop
+                        if let Some(merchant) = self.find_merchant_in_text(&crop_text) {
+                            return Some(merchant);
+                        }
+                    }
+                }
+            }
         }
         
-        None
+        // Fallback to full text
+        self.find_merchant_in_text(text)
     }
     
-    fn extract_merchant(&self, text: &str) -> Option<String> {
-        // Many receipts have the merchant name at the beginning
-        let lines: Vec<&str> = text.lines().collect();
+    fn extract_date(&self, text: &str) -> Option<String> {
+        // First try using the top part of the receipt for date
+        if let Some(top_data) = &self.top_crop {
+            if let Ok(mut crop_tesseract) = LepTess::new(None, "eng+tha") {
+                if crop_tesseract.set_image_from_mem(&top_data).is_ok() {
+                    if let Ok(crop_text) = crop_tesseract.get_utf8_text() {
+                        // Try to find date in the top crop
+                        if let Some(date) = self.find_date_in_text(&crop_text) {
+                            return Some(date);
+                        }
+                    }
+                }
+            }
+        }
         
-        // Often the first non-empty line is the merchant name
-        for line in lines.iter().take(5) {
-            let trimmed = line.trim();
-            if !trimmed.is_empty() && trimmed.len() > 3 {
-                return Some(trimmed.to_string());
+        // Fallback to full text
+        self.find_date_in_text(text)
+    }
+    
+    fn find_date_in_text(&self, text: &str) -> Option<String> {
+        // Look for common date formats
+        
+        // Thai date format: DD/MM/YYYY or DD-MM-YYYY
+        if let Ok(thai_date_regex) = Regex::new(r"(\d{1,2})[/-](\d{1,2})[/-](\d{4})") {
+            if let Some(caps) = thai_date_regex.captures(text) {
+                if let (Some(day), Some(month), Some(year)) = (caps.get(1), caps.get(2), caps.get(3)) {
+                    let day = day.as_str().parse::<u32>().ok()?;
+                    let month = month.as_str().parse::<u32>().ok()?;
+                    let year = year.as_str().parse::<i32>().ok()?;
+                    
+                    // Validate date components
+                    if day > 0 && day <= 31 && month > 0 && month <= 12 {
+                        // Format as ISO date string
+                        return Some(format!("{:04}-{:02}-{:02}", year, month, day));
+                    }
+                }
+            }
+        }
+        
+        // Western date format: YYYY-MM-DD
+        if let Ok(iso_date_regex) = Regex::new(r"(\d{4})-(\d{1,2})-(\d{1,2})") {
+            if let Some(caps) = iso_date_regex.captures(text) {
+                if let (Some(year), Some(month), Some(day)) = (caps.get(1), caps.get(2), caps.get(3)) {
+                    let year = year.as_str().parse::<i32>().ok()?;
+                    let month = month.as_str().parse::<u32>().ok()?;
+                    let day = day.as_str().parse::<u32>().ok()?;
+                    
+                    // Validate date components
+                    if day > 0 && day <= 31 && month > 0 && month <= 12 {
+                        // Format as ISO date string
+                        return Some(format!("{:04}-{:02}-{:02}", year, month, day));
+                    }
+                }
+            }
+        }
+        
+        // Try to find date with Thai month names
+        let thai_months = [
+            "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+            "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
+        ];
+        
+        for (i, month_name) in thai_months.iter().enumerate() {
+            let month_num = i + 1;
+            // Pattern: day month_name year (e.g., "15 มกราคม 2566")
+            let pattern = format!(r"(\d{{1,2}})\s*{}\s*(\d{{4}})", month_name);
+            if let Ok(thai_text_date_regex) = Regex::new(&pattern) {
+                if let Some(caps) = thai_text_date_regex.captures(text) {
+                    if let (Some(day), Some(year)) = (caps.get(1), caps.get(2)) {
+                        let day = day.as_str().parse::<u32>().ok()?;
+                        let year = year.as_str().parse::<i32>().ok()?;
+                        
+                        // Adjust year if it's in Buddhist Era (BE)
+                        let year_ce = if year > 2500 { year - 543 } else { year };
+                        
+                        // Validate date components
+                        if day > 0 && day <= 31 {
+                            // Format as ISO date string
+                            return Some(format!("{:04}-{:02}-{:02}", year_ce, month_num, day));
+                        }
+                    }
+                }
             }
         }
         
@@ -154,20 +392,43 @@ impl OcrProcessor {
         
         // This is a simplified approach - in reality, we'd need more sophisticated parsing
         // based on the specific receipt format, which varies greatly
-        if let Ok(item_regex) = Regex::new(r"([A-Za-z\s]+)[\s]+(\d+(?:\.\d{2})?)") {
+        
+        // For Thai receipts, look for patterns like "item name....95" or "item name 1x95"
+        if let Ok(item_regex) = Regex::new(r"([ก-๙a-zA-Z0-9\s]+)[\s\.]+(\d+)(?:x|\*)?(\d+(?:\.\d{1,2})?)?") {
             for line in text.lines() {
                 if let Some(cap) = item_regex.captures(line) {
-                    if cap.len() >= 3 {
-                        let name = cap[1].trim().to_string();
-                        let price = cap[2].parse::<f64>().ok();
+                    // Safely get the name from capture group 1
+                    if let Some(name_match) = cap.get(1) {
+                        let name = name_match.as_str().trim().to_string();
                         
-                        if name.len() > 2 && !name.to_lowercase().contains("total") {
-                            items.push(ItemData {
-                                name,
-                                price,
-                                quantity: Some(1), // Default quantity
-                            });
+                        // Check if this is a quantity x price pattern
+                        let (quantity, price) = if let Some(price_match) = cap.get(3) {
+                            // We have both quantity and price
+                            let qty = cap.get(2)
+                                .and_then(|q| q.as_str().parse::<u32>().ok());
+                            let prc = price_match.as_str().parse::<f64>().ok();
+                            (qty, prc)
+                        } else {
+                            // Just a price in group 2
+                            let prc = cap.get(2)
+                                .and_then(|p| p.as_str().parse::<f64>().ok());
+                            (Some(1), prc)
+                        };
+                        
+                        // Skip if it looks like a total line
+                        let lower_name = name.to_lowercase();
+                        if lower_name.contains("total") || 
+                           lower_name.contains("รวม") || 
+                           lower_name.contains("ทั้งหมด") ||
+                           lower_name.len() < 2 {
+                            continue;
                         }
+                        
+                        items.push(ItemData {
+                            name,
+                            price,
+                            quantity,
+                        });
                     }
                 }
             }
@@ -177,14 +438,14 @@ impl OcrProcessor {
     }
     
     pub async fn process_with_google_vision(&self, image_path: &Path) -> Result<OcrResult, AppError> {
-        let start = Instant::now();
+        let start = std::time::Instant::now();
         
         // Read image file to bytes
         let img_bytes = fs::read(image_path).map_err(|e| AppError::IoError(e))?;
         
         // Set up the Vision API request
         let client = reqwest::Client::new();
-        let api_key = env::var("GOOGLE_VISION_API_KEY")
+        let api_key = std::env::var("GOOGLE_VISION_API_KEY")
             .map_err(|_| AppError::ConfigError("GOOGLE_VISION_API_KEY not set".to_string()))?;
         
         let base64_image = base64::encode(&img_bytes);
@@ -219,8 +480,8 @@ impl OcrProcessor {
             .unwrap_or("")
             .to_string();
         
-        // Use your existing extraction logic
-        let extracted_data = self.extract_data(&text)?;
+        // Use the process_google_vision method to extract data
+        let extracted_data = self.process_google_vision(&text, 0.9)?;
         
         let duration = start.elapsed();
         let processing_time = duration.as_secs_f64();
@@ -236,7 +497,16 @@ impl OcrProcessor {
     // Add a hybrid processing method that uses Tesseract first, then Google Vision if confidence is low
     pub async fn process_image_hybrid(&mut self, image_path: &Path) -> Result<OcrResult, AppError> {
         // First try with Tesseract
-        let tesseract_result = self.process_image(image_path)?;
+        let img_bytes = fs::read(image_path).map_err(|e| AppError::IoError(e))?;
+        let tesseract_data = self.process_image(&img_bytes)?;
+        
+        // Create OcrResult from ExtractedData
+        let tesseract_result = OcrResult {
+            text: "".to_string(), // We don't store the full text in our new implementation
+            extracted_data: tesseract_data.clone(),
+            confidence: tesseract_data.confidence,
+            processing_time: 0.0, // We don't track this in the new implementation
+        };
         
         // If confidence is high and we extracted what we need, return the result
         if tesseract_result.confidence > 0.7 && 
@@ -248,5 +518,73 @@ impl OcrProcessor {
         // Otherwise, fallback to Vision API
         log::info!("Tesseract confidence too low ({}), falling back to Google Vision API", tesseract_result.confidence);
         self.process_with_google_vision(image_path).await
+    }
+    
+    pub fn process_google_vision(&self, text: &str, confidence: f32) -> Result<ExtractedData, AppError> {
+        // Extract data from the Google Vision API text
+        let total = self.find_total_in_text(text);
+        let date = self.find_date_in_text(text);
+        let merchant = self.find_merchant_in_text(text);
+        let items = self.extract_items(text);
+        
+        Ok(ExtractedData {
+            total,
+            date,
+            merchant,
+            items,
+            confidence,
+            ocr_source: "google_vision".to_string(),
+        })
+    }
+    
+    fn find_merchant_in_text(&self, text: &str) -> Option<String> {
+        // Common Thai business name indicators
+        let business_indicators = [
+            "บริษัท", "ร้าน", "ห้าง", "สาขา", "ใบเสร็จ", "ใบกำกับภาษี"
+        ];
+        
+        // Common merchant indicators in English
+        let merchant_indicators = [
+            "store", "shop", "restaurant", "cafe", "market", "mall", "supermarket"
+        ];
+        
+        // First look for lines with business indicators
+        let lines: Vec<&str> = text.lines().collect();
+        
+        // Check first few lines for business name
+        for line in lines.iter().take(10) {
+            let line_trimmed = line.trim();
+            if line_trimmed.is_empty() {
+                continue;
+            }
+            
+            // Check for Thai business indicators
+            for &indicator in &business_indicators {
+                if line_trimmed.contains(indicator) {
+                    return Some(line_trimmed.to_string());
+                }
+            }
+            
+            // Check for English merchant indicators
+            let line_lower = line_trimmed.to_lowercase();
+            for &indicator in &merchant_indicators {
+                if line_lower.contains(indicator) {
+                    return Some(line_trimmed.to_string());
+                }
+            }
+        }
+        
+        // If no indicators found, use the first non-empty line that's not a date/time
+        for line in lines.iter().take(3) {
+            let line_trimmed = line.trim();
+            if !line_trimmed.is_empty() && 
+               !line_trimmed.contains("/") && 
+               !line_trimmed.contains(":") && 
+               !line_trimmed.chars().all(|c| c.is_digit(10) || c == '.' || c == ',' || c == '-') {
+                return Some(line_trimmed.to_string());
+            }
+        }
+        
+        None
     }
 } 

@@ -15,7 +15,8 @@ export const useCategories = () => {
     async () => {
       try {
         const response = await categoriesAPI.getCategories();
-        return response.data.categories;
+        // The API returns the categories array directly, not wrapped in a categories property
+        return response.data;
       } catch (error) {
         console.error('Error fetching categories:', error);
         throw error;

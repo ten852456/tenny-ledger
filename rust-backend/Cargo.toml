@@ -14,7 +14,8 @@ serde_json = "1.0"
 jsonwebtoken = "8.3"
 dotenv = "0.15"
 env_logger = "0.10"
-image = "0.24"
+image = { version = "0.24", features = ["jpeg", "png", "webp"] }
+imageproc = "0.23"
 leptess = "0.14"
 regex = "1.8"
 rust-bert = "0.20"
@@ -27,6 +28,5 @@ thiserror = "1.0"
 bcrypt = "0.14"
 rand = "0.8"
 bigdecimal = { version = "0.3", features = ["serde"] } 
-google-cloud-vision = "0.2"
 reqwest = { version = "0.11", features = ["json", "multipart"] }
 base64 = "0.13"
