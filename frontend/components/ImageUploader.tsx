@@ -7,9 +7,12 @@ interface ImageUploaderProps {
   onError?: (error: string) => void;
 }
 
+type OcrEngine = 'hybrid' | 'tesseract' | 'google';
+
 const ImageUploader: React.FC<ImageUploaderProps> = ({ onProcessed, onError }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const [engine, setEngine] = useState<OcrEngine>('hybrid');
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return;
@@ -27,7 +30,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onProcessed, onError }) =
       const formData = new FormData();
       formData.append('image', file);
       
-      const response = await ocrAPI.processImage(formData);
+      const response = await ocrAPI.processImage(formData, engine);
       
       onProcessed(response.data);
     } catch (error) {
@@ -36,7 +39,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onProcessed, onError }) =
     } finally {
       setIsUploading(false);
     }
-  }, [onProcessed, onError]);
+  }, [onProcessed, onError, engine]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -50,6 +53,58 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onProcessed, onError }) =
 
   return (
     <div className="w-full">
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          OCR Engine:
+        </label>
+        <div className="flex space-x-4">
+          <div className="flex items-center">
+            <input
+              type="radio"
+              id="hybrid"
+              name="engine"
+              value="hybrid"
+              checked={engine === 'hybrid'}
+              onChange={() => setEngine('hybrid')}
+              className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+            />
+            <label htmlFor="hybrid" className="ml-2 text-sm text-gray-700">
+              Hybrid (Recommended)
+            </label>
+          </div>
+          
+          <div className="flex items-center">
+            <input
+              type="radio"
+              id="tesseract"
+              name="engine"
+              value="tesseract"
+              checked={engine === 'tesseract'}
+              onChange={() => setEngine('tesseract')}
+              className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+            />
+            <label htmlFor="tesseract" className="ml-2 text-sm text-gray-700">
+              Tesseract (Fast)
+            </label>
+          </div>
+          
+          <div className="flex items-center">
+            <input
+              type="radio"
+              id="google"
+              name="engine"
+              value="google"
+              checked={engine === 'google'}
+              onChange={() => setEngine('google')}
+              className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+            />
+            <label htmlFor="google" className="ml-2 text-sm text-gray-700">
+              Google Vision (Accurate)
+            </label>
+          </div>
+        </div>
+      </div>
+      
       <div 
         {...getRootProps()} 
         className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
@@ -76,7 +131,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onProcessed, onError }) =
       {isUploading && (
         <div className="mt-4 flex items-center justify-center">
           <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-500 mr-2"></div>
-          <p>Processing your bill...</p>
+          <p>Processing your bill{engine === 'google' ? ' with Google Cloud AI' : ''}...</p>
         </div>
       )}
     </div>

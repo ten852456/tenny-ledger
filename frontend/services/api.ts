@@ -56,12 +56,17 @@ export const authAPI = {
 
 // OCR API
 export const ocrAPI = {
-  processImage: (formData: FormData) => 
-    api.post('/api/ocr/process', formData, {
+  processImage: (formData: FormData, engine?: string) => {
+    const url = engine 
+      ? `/api/ocr/process/engine?engine=${engine}` 
+      : '/api/ocr/process';
+    
+    return api.post(url, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
-    }),
+    });
+  },
 };
 
 // Transactions API

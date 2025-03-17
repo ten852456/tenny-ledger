@@ -1,14 +1,35 @@
 use crate::error::AppError;
 use crate::ocr::processor::{OcrProcessor, OcrResult};
 use actix_multipart::Multipart;
-use actix_web::HttpResponse;
+use actix_web::{web, HttpResponse};
 use futures::{StreamExt, TryStreamExt};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
 use uuid::Uuid;
+use serde::Deserialize;
 
+#[derive(Deserialize)]
+pub struct OcrEngineQuery {
+    engine: Option<String>, // "tesseract", "google", or "hybrid" (default)
+}
+
+// Existing function that uses hybrid processing by default
 pub async fn process_image(mut payload: Multipart) -> Result<HttpResponse, AppError> {
+    process_image_with_engine(payload, "hybrid").await
+}
+
+// New function that allows specifying the OCR engine
+pub async fn process_image_with_engine(
+    mut payload: Multipart,
+    engine_param: Option<web::Query<OcrEngineQuery>>,
+) -> Result<HttpResponse, AppError> {
+    // Extract engine preference from query params or use hybrid by default
+    let engine = match engine_param {
+        Some(query) => query.engine.clone().unwrap_or_else(|| "hybrid".to_string()),
+        None => "hybrid".to_string(),
+    };
+    
     // Create temp directory if it doesn't exist
     let upload_dir = Path::new("./temp");
     if !upload_dir.exists() {
@@ -49,21 +70,33 @@ pub async fn process_image(mut payload: Multipart) -> Result<HttpResponse, AppEr
     // Process image with OCR
     if let Some(file_path) = temp_file_path {
         let mut processor = OcrProcessor::new()?;
-        let result = processor.process_image(&file_path)?;
+        
+        // Choose OCR engine based on the parameter
+        let result = match engine.as_str() {
+            "tesseract" => processor.process_image(&file_path)?,
+            "google" => processor.process_with_google_vision(&file_path).await?,
+            _ => processor.process_image_hybrid(&file_path).await?, // Default to hybrid
+        };
         
         // Clean up temp file
         if let Err(e) = fs::remove_file(&file_path) {
             log::warn!("Failed to remove temp file: {}", e);
         }
         
-        return Ok(HttpResponse::Ok().json(serialize_ocr_result(result)));
+        return Ok(HttpResponse::Ok().json(serialize_ocr_result(result, engine)));
     }
     
     Err(AppError::BadRequest("No image file found in the request".to_string()))
 }
 
 // Helper function to convert OcrResult to a serializable response
-fn serialize_ocr_result(result: OcrResult) -> serde_json::Value {
+fn serialize_ocr_result(result: OcrResult, engine: String) -> serde_json::Value {
+    let source = match engine.as_str() {
+        "tesseract" => "Tesseract OCR",
+        "google" => "Google Vision API",
+        _ => if result.confidence <= 0.7 { "Google Vision API" } else { "Tesseract OCR" },
+    };
+    
     serde_json::json!({
         "text": result.text,
         "extractedData": {
@@ -73,6 +106,8 @@ fn serialize_ocr_result(result: OcrResult) -> serde_json::Value {
             "items": result.extracted_data.items
         },
         "confidence": result.confidence,
-        "processingTime": result.processing_time
+        "processingTime": result.processing_time,
+        "source": source,
+        "engine": engine
     })
 } 

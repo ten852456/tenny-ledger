@@ -9,9 +9,10 @@ use chrono::Utc;
 use serde::Deserialize;
 use uuid::Uuid;
 use chrono::DateTime;
+use crate::db::DbPool as RealDbPool;
 
 // Type alias for the database pool
-type DbPool = web::Data<()>; // Mock pool type for now
+type DbPool = RealDbPool;
 
 // Get all transactions for a user
 pub async fn get_transactions(

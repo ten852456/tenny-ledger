@@ -10,12 +10,12 @@ const UploadPage: React.FC = () => {
   const router = useRouter();
   const [step, setStep] = useState<'upload' | 'confirm'>('upload');
   const [extractedData, setExtractedData] = useState<any>(null);
-  const [ocrText, setOcrText] = useState<string>('');
+  const [ocrResults, setOcrResults] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleProcessed = (data: any) => {
-    setOcrText(data.text);
+    setOcrResults(data);
     setExtractedData(data.extractedData);
     setStep('confirm');
   };
@@ -92,8 +92,8 @@ const UploadPage: React.FC = () => {
               </div>
               
               <div>
-                <h2 className="text-lg font-medium text-gray-900 mb-4">OCR Results</h2>
-                <BillPreview text={ocrText} />
+                <h2 className="text-lg font-medium text-gray-900 mb-4">Bill Analysis Results</h2>
+                {ocrResults && <BillPreview data={ocrResults} />}
               </div>
             </div>
           )}

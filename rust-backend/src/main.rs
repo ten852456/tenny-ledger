@@ -9,7 +9,7 @@ mod fixtures;
 mod schema;
 
 use actix_cors::Cors;
-use actix_web::{middleware, App, HttpServer};
+use actix_web::{middleware, App, HttpServer, web};
 use dotenv::dotenv;
 use std::env;
 use log::info;
@@ -48,7 +48,7 @@ async fn main() -> std::io::Result<()> {
             .max_age(3600);
             
         App::new()
-            .app_data(pool.clone())
+            .app_data(web::Data::new(pool.clone()))
             .wrap(middleware::Logger::default())
             .wrap(cors)
             .configure(routes::configure)

@@ -21,24 +21,24 @@ services:
       - tenny-network
 
   backend:
-    build:
-      context: ./rust-backend
-      dockerfile: Dockerfile
-      no_cache: true
-      args:
-        - REBUILD=$(date +%s)
     container_name: tenny-backend
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - "8080:8080"
+    build:
+      context: ./rust-backend
+      dockerfile: Dockerfile
     environment:
       - DATABASE_URL=postgres://postgres:password@postgres:5432/tenny_ledger
-      - RUST_LOG=info
-      - JWT_SECRET=docker_jwt_secret_change_in_production
-      - PORT=8080
+      - RUST_LOG=debug
+      - RUST_BACKTRACE=1
+      - JWT_SECRET=your_jwt_secret_here
       - HOST=0.0.0.0
+      - PORT=8080
+      - UPLOAD_DIR=/app/uploads
+      - GOOGLE_VISION_API_KEY=AIzaSyBtaCjkGuNWmWESjhUD-5MCloPxsZbwhwI
+    ports:
+      - "8080:8080"
     volumes:
       - ./uploads:/app/uploads
     networks:

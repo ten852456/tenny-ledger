@@ -6,6 +6,9 @@ use std::time::Instant;
 use regex::Regex;
 use serde;
 use std::fs;
+use base64;
+use reqwest;
+use std::env;
 
 pub struct OcrProcessor {
     tesseract: LepTess,
@@ -171,5 +174,79 @@ impl OcrProcessor {
         }
         
         items
+    }
+    
+    pub async fn process_with_google_vision(&self, image_path: &Path) -> Result<OcrResult, AppError> {
+        let start = Instant::now();
+        
+        // Read image file to bytes
+        let img_bytes = fs::read(image_path).map_err(|e| AppError::IoError(e))?;
+        
+        // Set up the Vision API request
+        let client = reqwest::Client::new();
+        let api_key = env::var("GOOGLE_VISION_API_KEY")
+            .map_err(|_| AppError::ConfigError("GOOGLE_VISION_API_KEY not set".to_string()))?;
+        
+        let base64_image = base64::encode(&img_bytes);
+        
+        let request_body = serde_json::json!({
+            "requests": [{
+                "image": {
+                    "content": base64_image
+                },
+                "features": [{
+                    "type": "DOCUMENT_TEXT_DETECTION"
+                }]
+            }]
+        });
+        
+        // Make the API request
+        let response = client
+            .post(format!("https://vision.googleapis.com/v1/images:annotate?key={}", api_key))
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(|e| AppError::ExternalApiError(format!("Google Vision API request failed: {}", e)))?;
+        
+        let vision_result: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| AppError::ExternalApiError(format!("Failed to parse API response: {}", e)))?;
+        
+        // Extract text
+        let text = vision_result["responses"][0]["fullTextAnnotation"]["text"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        
+        // Use your existing extraction logic
+        let extracted_data = self.extract_data(&text)?;
+        
+        let duration = start.elapsed();
+        let processing_time = duration.as_secs_f64();
+        
+        Ok(OcrResult {
+            text,
+            extracted_data,
+            confidence: 0.9, // Google doesn't provide a direct confidence score for the whole document
+            processing_time,
+        })
+    }
+    
+    // Add a hybrid processing method that uses Tesseract first, then Google Vision if confidence is low
+    pub async fn process_image_hybrid(&mut self, image_path: &Path) -> Result<OcrResult, AppError> {
+        // First try with Tesseract
+        let tesseract_result = self.process_image(image_path)?;
+        
+        // If confidence is high and we extracted what we need, return the result
+        if tesseract_result.confidence > 0.7 && 
+           tesseract_result.extracted_data.total.is_some() && 
+           tesseract_result.extracted_data.merchant.is_some() {
+            return Ok(tesseract_result);
+        }
+        
+        // Otherwise, fallback to Vision API
+        log::info!("Tesseract confidence too low ({}), falling back to Google Vision API", tesseract_result.confidence);
+        self.process_with_google_vision(image_path).await
     }
 } 

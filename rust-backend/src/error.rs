@@ -32,6 +32,15 @@ pub enum AppError {
     
     #[error("Internal server error: {0}")]
     InternalServerError(String),
+    
+    #[error("Configuration error: {0}")]
+    ConfigError(String),
+    
+    #[error("External API error: {0}")]
+    ExternalApiError(String),
+    
+    #[error("Parse error: {0}")]
+    ParseError(String),
 }
 
 impl ResponseError for AppError {
@@ -47,6 +56,9 @@ impl ResponseError for AppError {
             AppError::NotFound(_) => HttpResponse::NotFound().json(ErrorResponse::new(self)),
             AppError::BadRequest(_) => HttpResponse::BadRequest().json(ErrorResponse::new(self)),
             AppError::InternalServerError(_) => HttpResponse::InternalServerError().json(ErrorResponse::new(self)),
+            AppError::ConfigError(_) => HttpResponse::InternalServerError().json(ErrorResponse::new(self)),
+            AppError::ExternalApiError(_) => HttpResponse::InternalServerError().json(ErrorResponse::new(self)),
+            AppError::ParseError(_) => HttpResponse::BadRequest().json(ErrorResponse::new(self)),
         }
     }
 }

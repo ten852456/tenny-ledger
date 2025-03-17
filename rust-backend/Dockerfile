@@ -49,6 +49,10 @@ RUN apt-get update && apt-get install -y \
     libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
+# Set environment variables for detailed logging
+ENV RUST_LOG=debug
+ENV RUST_BACKTRACE=1
+
 WORKDIR /app
 
 # Copy the binary from the builder stage

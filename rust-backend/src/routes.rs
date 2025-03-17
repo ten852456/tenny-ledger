@@ -12,6 +12,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .service(
                 web::scope("/ocr")
                     .route("/process", web::post().to(ocr::process_image))
+                    .route("/process/engine", web::post().to(ocr::process_image_with_engine))
             )
             .service(
                 web::scope("/transactions")
