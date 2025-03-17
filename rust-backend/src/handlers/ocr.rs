@@ -36,6 +36,11 @@ async fn process_image_with_engine_internal(
     mut payload: Multipart,
     engine: String,
 ) -> Result<HttpResponse, AppError> {
+    // Check if the requested engine is available
+    if engine == "google" && !crate::config::Secrets::has_google_vision_api_key() {
+        return Err(AppError::BadRequest("Google Vision API not configured".to_string()));
+    }
+    
     // Create temp directory if it doesn't exist
     let upload_dir = Path::new("./temp");
     if !upload_dir.exists() {
@@ -50,21 +55,45 @@ async fn process_image_with_engine_internal(
         let content_disposition = field.content_disposition();
         
         if let Some(filename) = content_disposition.get_filename() {
-            // Generate a unique filename
-            let file_id = Uuid::new_v4();
+            // Validate file extension
             let file_ext = Path::new(filename)
                 .extension()
                 .and_then(|ext| ext.to_str())
-                .unwrap_or("unknown");
+                .unwrap_or("unknown")
+                .to_lowercase();
                 
+            // Only allow specific image formats
+            if !["jpg", "jpeg", "png", "pdf"].contains(&file_ext.as_str()) {
+                return Err(AppError::BadRequest(
+                    format!("Unsupported file type: {}. Only JPG, PNG, and PDF are supported", file_ext)
+                ));
+            }
+                
+            // Generate a unique filename
+            let file_id = Uuid::new_v4();
             let file_path = upload_dir.join(format!("{}.{}", file_id, file_ext));
             let mut file = fs::File::create(&file_path)
                 .map_err(|e| AppError::IoError(e))?;
+                
+            // Set a reasonable file size limit (10MB)
+            const MAX_FILE_SIZE: usize = 10 * 1024 * 1024; // 10MB
+            let mut total_size = 0;
                 
             // Write file to disk
             while let Some(chunk) = field.next().await {
                 let data = chunk
                     .map_err(|e| AppError::BadRequest(format!("Error reading multipart data: {}", e)))?;
+                
+                // Check if adding this chunk would exceed the size limit
+                total_size += data.len();
+                if total_size > MAX_FILE_SIZE {
+                    // Clean up the partial file
+                    let _ = fs::remove_file(&file_path);
+                    return Err(AppError::BadRequest(
+                        format!("File size exceeds the maximum allowed size of {}MB", MAX_FILE_SIZE / 1024 / 1024)
+                    ));
+                }
+                
                 file.write_all(&data)
                     .map_err(|e| AppError::IoError(e))?;
             }

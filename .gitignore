@@ -47,6 +47,10 @@ yarn-error.log*
 .env.production.local
 /rust-backend/.env
 
+# Secrets
+/secrets/*.txt
+!/secrets/*.template
+
 # IDE
 .idea/
 .vscode/

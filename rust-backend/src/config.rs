@@ -1,5 +1,8 @@
 use std::env;
 use std::time::Duration;
+use std::sync::OnceLock;
+use dotenv::dotenv;
+use log::{info, warn};
 
 use serde::{Deserialize, Serialize};
 
@@ -29,6 +32,72 @@ pub struct DatabaseConfig {
 pub struct JwtConfig {
     pub secret: String,
     pub expiry: Duration,
+}
+
+// Store configs in a static OnceLock for initialization once and immutable access
+static SECRETS: OnceLock<Secrets> = OnceLock::new();
+
+pub struct Secrets {
+    google_vision_api_key: Option<String>,
+    // Add other secrets here
+}
+
+// Public methods to access secrets without exposing them
+impl Secrets {
+    pub fn has_google_vision_api_key() -> bool {
+        get_secrets().google_vision_api_key.is_some()
+    }
+
+    pub fn get_google_vision_api_key() -> Option<String> {
+        get_secrets().google_vision_api_key.clone()
+    }
+}
+
+// Public function to initialize app configuration
+pub fn init_config() {
+    // Load .env file if present
+    if let Err(e) = dotenv() {
+        warn!("Failed to load .env file: {}", e);
+    }
+    
+    // Initialize secrets
+    initialize_secrets();
+    
+    // Log which features are available, without exposing actual keys
+    if Secrets::has_google_vision_api_key() {
+        info!("Google Vision API is configured and available");
+    } else {
+        warn!("Google Vision API is not configured");
+    }
+}
+
+// Private function to initialize secrets
+fn initialize_secrets() {
+    let _ = SECRETS.get_or_init(|| {
+        Secrets {
+            google_vision_api_key: read_secret("GOOGLE_VISION_API_KEY"),
+            // Add other secrets here
+        }
+    });
+}
+
+// Helper function to get secrets from env vars in a secure way
+fn read_secret(name: &str) -> Option<String> {
+    match env::var(name) {
+        Ok(value) if !value.trim().is_empty() => Some(value),
+        _ => None,
+    }
+}
+
+// Helper function to access the initialized secrets
+fn get_secrets() -> &'static Secrets {
+    SECRETS.get_or_init(|| {
+        warn!("Secrets accessed before initialization");
+        Secrets {
+            google_vision_api_key: None,
+            // Set other secrets to None
+        }
+    })
 }
 
 impl Config {

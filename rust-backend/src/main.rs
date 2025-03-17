@@ -10,14 +10,15 @@ mod schema;
 
 use actix_cors::Cors;
 use actix_web::{middleware, App, HttpServer, web};
-use dotenv::dotenv;
 use std::env;
 use log::info;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    dotenv().ok();
     env_logger::init();
+    
+    // Initialize configuration (including secrets and dotenv)
+    config::init_config();
     
     // Check for command line args
     let args: Vec<String> = env::args().collect();

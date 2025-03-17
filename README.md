@@ -62,6 +62,10 @@ This project uses a hybrid tech stack:
    
    # JWT settings
    JWT_SECRET=your-secret-key
+   
+   # OCR settings - Optional
+   # Add this if you want to use Google Vision API for enhanced OCR
+   # GOOGLE_VISION_API_KEY=your-google-vision-api-key
    ```
 
 5. Initialize the database and load fixtures:
@@ -147,3 +151,24 @@ The frontend will be available at http://localhost:3000 and the backend at http:
 ## License
 
 MIT 
+
+### API Keys and Security
+
+The application uses a secure configuration module to handle sensitive information like API keys:
+
+1. **Google Vision API (Optional)**: For enhanced OCR processing, you can configure a Google Vision API key. The application will fall back to local Tesseract OCR if no API key is provided.
+
+2. **Secure API Key Handling**:
+   - API keys are stored securely and never exposed in logs or error messages
+   - Keys are accessed through a secure configuration module
+   - The app automatically detects which OCR engines are available based on configuration
+
+3. **File Upload Security**:
+   - File types are validated to only allow image formats (JPG, PNG, PDF)
+   - File size is limited to prevent abuse (10MB max)
+   - Temporary files are automatically cleaned up after processing
+
+4. **Production Deployment**:
+   - In production, it's recommended to use environment variables instead of .env files
+   - For Docker deployments, use Docker secrets or environment variables in docker-compose.yml
+   - Never commit API keys or sensitive data to version control 

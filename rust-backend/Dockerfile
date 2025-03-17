@@ -32,6 +32,27 @@ WORKDIR /usr/src/app
 # Copy the entire source code
 COPY . .
 
+# Create entrypoint script for handling secrets
+RUN echo '#!/bin/bash\n\
+# Load secrets into environment variables\n\
+if [ -f /run/secrets/jwt_secret ]; then\n\
+  export JWT_SECRET=$(cat /run/secrets/jwt_secret)\n\
+  echo "Loaded JWT secret from secrets"\n\
+else\n\
+  echo "WARNING: JWT secret file not found in secrets"\n\
+fi\n\
+\n\
+if [ -f /run/secrets/google_vision_api_key ]; then\n\
+  export GOOGLE_VISION_API_KEY=$(cat /run/secrets/google_vision_api_key)\n\
+  echo "Loaded Google Vision API key from secrets"\n\
+else\n\
+  echo "INFO: Google Vision API key not found in secrets - will use Tesseract OCR only"\n\
+fi\n\
+\n\
+# Execute the command passed to docker run\n\
+exec "$@"' > docker-entrypoint.sh && \
+chmod +x docker-entrypoint.sh
+
 # Build the application
 RUN cargo build --release
 
@@ -58,8 +79,14 @@ WORKDIR /app
 # Copy the binary from the builder stage
 COPY --from=builder /usr/src/app/target/release/tenny-ledger-backend /app/
 
+# Copy the entrypoint script
+COPY --from=builder /usr/src/app/docker-entrypoint.sh /app/
+
 # Create uploads directory
 RUN mkdir -p /app/uploads
 
-# Run the binary
+# Run the entrypoint script
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+
+# Default command
 CMD ["./tenny-ledger-backend"] 

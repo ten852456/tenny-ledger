@@ -445,8 +445,17 @@ impl OcrProcessor {
         
         // Set up the Vision API request
         let client = reqwest::Client::new();
-        let api_key = std::env::var("GOOGLE_VISION_API_KEY")
-            .map_err(|_| AppError::ConfigError("GOOGLE_VISION_API_KEY not set".to_string()))?;
+        
+        // Get API key from secure config module
+        let api_key = match crate::config::Secrets::get_google_vision_api_key() {
+            Some(key) => key,
+            None => {
+                log::error!("Google Vision API key not configured");
+                return Err(AppError::ConfigError("Google Vision API not configured".to_string()));
+            }
+        };
+        
+        log::debug!("Using Google Vision API with configured credentials");
         
         let base64_image = base64::encode(&img_bytes);
         
@@ -461,18 +470,34 @@ impl OcrProcessor {
             }]
         });
         
-        // Make the API request
+        // Make the API request - using separate URL variable to avoid logging the key
+        let api_url = format!("https://vision.googleapis.com/v1/images:annotate?key={}", api_key);
         let response = client
-            .post(format!("https://vision.googleapis.com/v1/images:annotate?key={}", api_key))
+            .post(&api_url)
             .json(&request_body)
             .send()
             .await
-            .map_err(|e| AppError::ExternalApiError(format!("Google Vision API request failed: {}", e)))?;
+            .map_err(|e| {
+                // Don't include the API key in error messages
+                log::error!("Google Vision API request failed: {}", e);
+                AppError::ExternalApiError("Failed to connect to Google Vision API".to_string())
+            })?;
+        
+        // Check for specific error status codes
+        if !response.status().is_success() {
+            let status = response.status();
+            // Log the error without potentially exposing the API key
+            log::error!("Google Vision API returned error status: {}", status);
+            return Err(AppError::ExternalApiError(format!("Google Vision API returned status code: {}", status)));
+        }
         
         let vision_result: serde_json::Value = response
             .json()
             .await
-            .map_err(|e| AppError::ExternalApiError(format!("Failed to parse API response: {}", e)))?;
+            .map_err(|e| {
+                log::error!("Failed to parse API response: {}", e);
+                AppError::ExternalApiError("Failed to parse API response".to_string())
+            })?;
         
         // Extract text
         let text = vision_result["responses"][0]["fullTextAnnotation"]["text"]
@@ -515,9 +540,16 @@ impl OcrProcessor {
             return Ok(tesseract_result);
         }
         
-        // Otherwise, fallback to Vision API
-        log::info!("Tesseract confidence too low ({}), falling back to Google Vision API", tesseract_result.confidence);
-        self.process_with_google_vision(image_path).await
+        // Check if Google Vision API is configured before falling back to it
+        if crate::config::Secrets::has_google_vision_api_key() {
+            // Only fall back to Google Vision if it's configured
+            log::info!("Tesseract confidence too low ({}), falling back to Google Vision API", tesseract_result.confidence);
+            self.process_with_google_vision(image_path).await
+        } else {
+            // If Google Vision isn't configured, just return the Tesseract result with a warning
+            log::warn!("Tesseract confidence low ({}), but Google Vision API not configured", tesseract_result.confidence);
+            Ok(tesseract_result)
+        }
     }
     
     pub fn process_google_vision(&self, text: &str, confidence: f32) -> Result<ExtractedData, AppError> {
